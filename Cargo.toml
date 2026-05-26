@@ -1,0 +1,9 @@
+[package]
+name = "toy_merkle_radix_account_trie"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sha3 = "0.10"
+rlp = "0.5"
+hex = "0.4"
