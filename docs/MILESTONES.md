@@ -25,6 +25,8 @@ Acceptance criteria:
 
 Purpose: stop building everything in `main.rs` and create reusable module boundaries before the real trie grows.
 
+Status: completed for the current toy trie baseline. The crate now exposes public library APIs through `src/lib.rs`, and `src/main.rs` is only an example binary. A separate `rlp` module was intentionally skipped for now because RLP usage is still local to account and trie encoding.
+
 Deliverables:
 
 - Add `src/lib.rs`.
