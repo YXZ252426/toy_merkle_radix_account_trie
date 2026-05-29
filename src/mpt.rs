@@ -1,3 +1,5 @@
+use rlp::{Rlp, RlpStream};
+
 use crate::types::Hash;
 
 pub type Nibble = u8;
@@ -34,7 +36,7 @@ pub fn compact_encode(path: &[Nibble], is_leaf: bool) -> Vec<u8> {
         (false, false) => 0,
         (false, true) => 1,
         (true, false) => 2,
-        (true, true) => 4,
+        (true, true) => 3,
     };
 
     let mut encoded_nibbles = Vec::with_capacity(path.len() + 2);
@@ -50,7 +52,7 @@ pub fn compact_encode(path: &[Nibble], is_leaf: bool) -> Vec<u8> {
 
 pub fn compact_decode(encoded: &[u8]) -> Option<(Vec<Nibble>, bool)> {
     let nibbles = unpack_nibbles(encoded);
-    let flag = *&nibbles.first()?;
+    let flag = *nibbles.first()?;
     let is_leaf = matches!(flag, 2 | 3);
     let is_odd = matches!(flag, 1 | 3);
 
@@ -97,6 +99,108 @@ impl MptNode {
 
     pub fn extension(path: Vec<Nibble>, child: NodeRef) -> Self {
         Self::Extension { path, child}
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            Self::Branch { children, value } => {
+                let mut stream = RlpStream::new_list(17);
+
+                for child in children {
+                    match child {
+                        Some(hash) => {
+                            let hash_bytes: &[u8] = hash;
+                            stream.append(&hash_bytes);
+                        }
+                        None => {
+                            stream.append_empty_data();
+                        }
+                    }
+                }
+
+                match value {
+                    Some(value) => {
+                        stream.append(value);
+                    }
+                    None => {
+                        stream.append_empty_data();
+                    }
+                }
+
+                stream.out().to_vec()
+            },
+            Self::Leaf { path, value } => {
+                let mut stream = RlpStream::new_list(2);
+                stream.append(&compact_encode(path, true));
+                stream.append(value);
+                stream.out().to_vec()
+            },
+            Self::Extension { path, child } => {
+                let mut stream = RlpStream::new_list(2);
+                stream.append(&compact_encode(path, false));
+
+                let child_bytes: &[u8] = child;
+                stream.append(&child_bytes);
+
+                stream.out().to_vec()
+            },
+        }
+    }
+
+    pub fn decode(encoded: &[u8]) -> Option<Self> {
+        let rlp = Rlp::new(encoded);
+        let item_count = rlp.item_count().ok()?;
+
+        match item_count {
+            2 => Self::decode_short_node(&rlp),
+            17 => Self::decode_branch(&rlp),
+            _ => None
+        }
+    }
+
+    fn decode_branch(rlp: &Rlp<'_>) -> Option<Self> {
+        let mut children = [None; 16];
+        
+        for (index, child) in children.iter_mut().enumerate() {
+            let data: Vec<u8> = rlp.val_at(index).ok()?;
+
+            if data.is_empty() {
+                continue;
+            }
+
+            if data.len() != 32 {
+                return None;
+            }
+
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(&data);
+            *child = Some(hash);
+        }
+
+        let value: Vec<u8> = rlp.val_at(16).ok()?;
+        let value  = if value.is_empty() {None} else {Some(value)};
+
+        Some(Self::Branch { children, value })
+    }
+
+    fn decode_short_node(rlp: &Rlp<'_>) -> Option<Self> {
+        let encoded_path: Vec<u8> = rlp.val_at(0).ok()?;
+        let (path, is_leaf) = compact_decode(&encoded_path)?;
+
+        if is_leaf {
+            let value: Vec<u8> = rlp.val_at(1).ok()?;
+            return Some(Self::Leaf { path, value })
+        }
+
+        let child_vec: Vec<u8> = rlp.val_at(1).ok()?;
+        if child_vec.len() != 32 {
+            return None;
+        }
+
+        let mut child = [0u8; 32];
+        child.copy_from_slice(&child_vec);
+
+        Some(Self::Extension { path, child })
     }
 }
 
@@ -243,5 +347,77 @@ mod tests {
                 Some((path.clone(), true))
             );
         }
+    }
+
+    #[test]
+    fn branch_node_rlp_round_trips() {
+        let mut children = [None; 16];
+        children[3] = Some([0x33u8; 32]);
+        children[10] = Some([0xaau8; 32]);
+        let node = MptNode::Branch { 
+            children,
+            value: Some(b"branch-value".to_vec()), 
+        };
+
+        assert_eq!(MptNode::decode(&node.encode()) , Some(node))
+    }
+
+    #[test]
+    fn leaf_node_rlp_round_trips() {
+        let node = MptNode::Leaf { 
+            path: vec![0x01, 0x02, 0x03],
+            value: b"leaf-node".to_vec() 
+        };
+
+        assert_eq!(MptNode::decode(&node.encode()), Some(node));
+    }
+
+    #[test]
+    fn extension_node_rlp_round_trips() {
+        let node = MptNode::Extension { 
+            path: vec![0x01, 0x02, 0x03],
+            child: [0x44u8; 32],
+        };
+
+        assert_eq!(MptNode::decode(&node.encode()), Some(node));
+    }
+
+
+    #[test]
+    fn empty_branch_node_rlp_round_trips() {
+        let node = MptNode::branch();
+
+        assert_eq!(MptNode::decode(&node.encode()), Some(node));
+    }
+
+   #[test]
+    fn decode_rejects_branch_child_with_invalid_hash_length() {
+        let mut stream = RlpStream::new_list(17);
+
+        stream.append(&vec![0x01, 0x02]);
+        for _ in 1..16 {
+            stream.append_empty_data();
+        }
+        stream.append_empty_data();
+
+        assert_eq!(MptNode::decode(&stream.out()), None);
+    }
+
+    #[test]
+    fn decode_rejects_extension_with_invalid_child_length() {
+        let mut stream = RlpStream::new_list(2);
+        stream.append(&compact_encode(&[0x01, 0x02], false));
+        stream.append(&vec![0x01, 0x02]);
+
+        assert_eq!(MptNode::decode(&stream.out()), None);
+    }
+
+    #[test]
+    fn decode_rejects_short_node_with_invalid_compact_path() {
+        let mut stream = RlpStream::new_list(2);
+        stream.append(&vec![0x40]);
+        stream.append(&b"value".to_vec());
+
+        assert_eq!(MptNode::decode(&stream.out()), None);
     }
 }
