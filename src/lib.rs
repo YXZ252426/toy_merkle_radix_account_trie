@@ -1,6 +1,7 @@
 pub mod account;
 pub mod crypto;
 pub mod execution;
+pub mod mpt;
 pub mod trie;
 pub mod types;
 
