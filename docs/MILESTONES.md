@@ -50,6 +50,8 @@ Acceptance criteria:
 
 Purpose: implement the real trie structure before adding storage, transactions, and blocks on top of it.
 
+Status: Phase 2A completed. The project now has a real MPT core with `Branch`, `Leaf`, and `Extension` nodes, hex-prefix compact path encoding, RLP node encoding/decoding, an in-memory MPT node database, `MptTrie::get`, `MptTrie::insert`, inclusion proofs, and `AccountTrie` backed by `MptTrie`. Ethereum inline small-node references, delete, and non-inclusion proofs are intentionally deferred to a later compatibility/hardening pass.
+
 Deliverables:
 
 - Implement node types:
@@ -70,6 +72,13 @@ Acceptance criteria:
 - Tests cover path splitting, shared prefixes, overwrites, deletes, and proof verification.
 - Root hashes are deterministic across insertion order for the same final key/value set.
 - The old branch-only trie is removed or clearly isolated as historical/demo code.
+
+Phase 2A notes:
+
+- Node references are always 32-byte hashes. Inline child references are not modeled yet.
+- Inclusion proofs are implemented. Non-inclusion proofs are deferred.
+- Insert/get/proof are implemented. Delete is deferred.
+- The old branch-only `MerkleRadixTrie` remains isolated as legacy/demo code while `AccountTrie` uses `MptTrie`.
 
 ## Milestone 3: Add Account State Trie and Storage Tries
 
