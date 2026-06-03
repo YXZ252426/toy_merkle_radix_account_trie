@@ -322,6 +322,42 @@ impl MptTrie {
         }
     }
 
+    pub fn prove(&self, key: &[u8]) -> Option<Vec<Vec<u8>>> {
+        let nibbles = bytes_to_nibbles(key);
+        let mut remaining_path = nibbles.as_slice();
+        let mut current_hash = self.root?;
+        let mut proof = Vec::new();
+
+        loop {
+            let encoded_node = self.db.get_encoded(current_hash)?;
+            let node = MptNode::decode(encoded_node)?;
+
+            proof.push(encoded_node.to_vec());
+            match node {
+                MptNode::Branch { children, value } => {
+                    if remaining_path.is_empty() {
+                        return value.map(|_| proof);
+                    }
+
+                    let child_index = remaining_path[0] as usize;
+                    current_hash = children[child_index]?;
+                    remaining_path = &remaining_path[1..];
+                },
+                MptNode::Extension { path, child } => {
+                    if !remaining_path.starts_with(&path) {
+                        return None;
+                    }
+
+                    current_hash = child;
+                    remaining_path = &remaining_path[path.len()..];
+                },
+                MptNode::Leaf { path, value: _ } => {
+                    return (path == remaining_path).then_some(proof);
+                },
+            }
+        }
+    }
+
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) {
         let nibbles = bytes_to_nibbles(key);
         let new_root = self.insert_at(self.root, &nibbles, value);
@@ -480,6 +516,53 @@ impl MptTrie {
                 .put(&MptNode::extension(shared_path.to_vec(), child))
         }
     }
+}
+
+pub fn verify_mpt_proof(root: Hash, key: &[u8], expected_value: &[u8], proof: &[Vec<u8>]) -> bool {
+    let nibbles = bytes_to_nibbles(key);
+    let mut expected_hash = root;
+    let mut remaining_path = nibbles.as_slice();
+
+    for (index, encoded_node) in proof.iter().enumerate() {
+        if keccak256(encoded_node) != expected_hash {
+            return false;
+        }
+
+        let Some(node) = MptNode::decode(encoded_node) else {
+            return false;
+        };
+
+        let is_last = index == proof.len() - 1;
+
+        match node {
+            MptNode::Branch { children, value } => {
+                if remaining_path.is_empty() {
+                    return is_last && Some(expected_value) == value.as_deref();
+                }
+
+                let child_index = remaining_path[0] as usize;
+                let Some(child_hash) = children[child_index] else {
+                    return false;
+                };
+
+                expected_hash = child_hash;
+                remaining_path = &remaining_path[1..];
+            },
+            MptNode::Extension { path, child } => {
+                if !remaining_path.starts_with(&path) {
+                    return false
+                }
+
+                expected_hash = child;
+                remaining_path = &remaining_path[path.len()..];
+            },
+            MptNode::Leaf { path, value } => {
+                return is_last && remaining_path == path && expected_value == value;
+            },
+        }
+    }
+
+    false
 }
 #[cfg(test)]
 mod tests {
@@ -938,4 +1021,135 @@ use super::*;
         assert_eq!(trie.get(b""), Some(b"empty-key".to_vec()));
         assert_eq!(trie.get(b"\x12"), Some(b"other".to_vec()));
     }
+
+    #[test]
+    fn mpt_prove_returns_inclusion_proof_for_leaf_value() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+
+        let proof = trie.prove(b"\x12\x34").expect("proof should exist");
+
+        assert_eq!(proof.len(), 1);
+        assert!(verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12\x34",
+            b"value",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn mpt_prove_returns_inclusion_proof_through_extension_and_branch() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"left".to_vec());
+        trie.insert(b"\x12\x35", b"right".to_vec());
+
+        let proof = trie.prove(b"\x12\x35").expect("proof should exist");
+
+        assert_eq!(proof.len(), 3);
+        assert!(verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12\x35",
+            b"right",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn mpt_prove_returns_inclusion_proof_for_branch_value() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12", b"short".to_vec());
+        trie.insert(b"\x12\x34", b"long".to_vec());
+
+        let proof = trie.prove(b"\x12").expect("proof should exist");
+
+        assert!(verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12",
+            b"short",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn mpt_prove_returns_none_for_missing_key() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+
+        assert_eq!(trie.prove(b"\x12\x35"), None);
+        assert_eq!(trie.prove(b"\x12"), None);
+    }
+
+    #[test]
+    fn verify_mpt_proof_rejects_wrong_root() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+        let proof = trie.prove(b"\x12\x34").expect("proof should exist");
+
+        assert!(!verify_mpt_proof(
+            [0x99u8; 32],
+            b"\x12\x34",
+            b"value",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn verify_mpt_proof_rejects_wrong_value() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+        let proof = trie.prove(b"\x12\x34").expect("proof should exist");
+
+        assert!(!verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12\x34",
+            b"wrong",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn verify_mpt_proof_rejects_wrong_key() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+        let proof = trie.prove(b"\x12\x34").expect("proof should exist");
+
+        assert!(!verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12\x35",
+            b"value",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn verify_mpt_proof_rejects_tampered_node() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+        let mut proof = trie.prove(b"\x12\x34").expect("proof should exist");
+        proof[0][0] ^= 0x01;
+
+        assert!(!verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12\x34",
+            b"value",
+            &proof
+        ));
+    }
+
+    #[test]
+    fn verify_mpt_proof_rejects_extra_nodes_after_value() {
+        let mut trie = MptTrie::new();
+        trie.insert(b"\x12\x34", b"value".to_vec());
+        let mut proof = trie.prove(b"\x12\x34").expect("proof should exist");
+        proof.push(MptNode::leaf(vec![], b"extra".to_vec()).encode());
+
+        assert!(!verify_mpt_proof(
+            trie.root_hash(),
+            b"\x12\x34",
+            b"value",
+            &proof
+        ));
+    }
+
 }
