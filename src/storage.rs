@@ -19,7 +19,7 @@ pub fn decode_storage_value( encoded: &[u8]) -> Option<StorageValue> {
     Rlp::new(encoded).as_val().ok()
 }
 
-
+#[derive(Debug, Clone, Default)]
 pub struct StorageTrie {
     trie: MptTrie,
 }
