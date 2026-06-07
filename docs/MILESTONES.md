@@ -123,6 +123,8 @@ Milestone 3 notes:
 
 Purpose: support block-level roots beyond state root.
 
+Status: completed for ordered transaction and receipt root calculation. The project now has simple transfer transaction and receipt data models, deterministic RLP encoding/decoding for both, RLP-encoded ordered trie indexes, `transaction_root`, and `receipt_root`. These roots are derived from ordered lists using `MptTrie`. Actual transaction execution, receipt generation from state transitions, block headers, and root validation are deferred to later milestones.
+
 Deliverables:
 
 - Define transaction types for the first execution model:
@@ -145,6 +147,14 @@ Acceptance criteria:
 - A block with the same ordered transactions produces the same transaction root.
 - Reordering transactions changes the transaction root.
 - Processing transactions produces receipts and a receipt root.
+
+Milestone 4 notes:
+
+- Transaction values are simple transfer transactions with `from`, `to`, `nonce`, and `value`.
+- Receipt values contain `success`, `gas_used`, and an optional error string.
+- Transaction and receipt trie keys are RLP-encoded list indexes.
+- `transaction_root` and `receipt_root` are deterministic for the same ordered inputs and change when item content or ordering changes.
+- Receipts are not produced by an executor yet. They are explicitly supplied to `receipt_root`.
 
 ## Milestone 5: Add Persistent Database Abstractions
 
