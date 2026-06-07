@@ -4,6 +4,14 @@ use rlp::{DecoderError, Rlp, RlpStream};
 
 use crate::types::Address;
 
+
+pub fn encode_ordered_trie_index(index: usize) -> Vec<u8> {
+    let mut stream = RlpStream::new();
+
+    stream.append(&(index as u64));
+
+    stream.out().to_vec()
+}
 #[derive(Debug, PartialEq, Eq)]
 pub struct Transaction {
     pub from: Address,
@@ -147,6 +155,26 @@ impl Receipt {
 mod tests {
     use super::*;
 
+    #[test]
+    fn ordered_trie_index_encoding_is_deterministic() {
+        assert_eq!(encode_ordered_trie_index(7), encode_ordered_trie_index(7));
+    }
+
+    #[test]
+    fn ordered_trie_index_encoding_distinguishes_positions() {
+        assert_ne!(encode_ordered_trie_index(0), encode_ordered_trie_index(1));
+        assert_ne!(encode_ordered_trie_index(1), encode_ordered_trie_index(2));
+    }
+
+    #[test]
+    fn ordered_trie_index_encoding_round_trips_as_rlp_integer() {
+        for index in [0usize, 1, 15, 16, 1024] {
+            let encoded = encode_ordered_trie_index(index);
+            let decoded: u64 = Rlp::new(&encoded).as_val().expect("index should decode");
+
+            assert_eq!(decoded, index as u64);
+        }
+    }
     #[test]
     fn transfer_transaction_rlp_round_trips() {
         let transaction = Transaction::new_transfer([0x11u8; 20], [0x22u8; 20], 7, 99);
