@@ -84,6 +84,8 @@ Phase 2A notes:
 
 Purpose: model world state as accounts, and each account's contract storage as its own trie.
 
+Status: completed for the current in-memory execution state model. `State` now wraps the account trie, supports account create/load/update, supports per-account storage slot reads and writes, updates the account `storage_root` after storage writes, and therefore updates the global state root. Storage trie keys use `keccak256(slot_key)` and storage values use RLP byte encoding. Shared persistent node databases and reopening storage tries from an arbitrary historical root are deferred to Milestone 5.
+
 Deliverables:
 
 - Define an `Account` that stores:
@@ -109,6 +111,13 @@ Acceptance criteria:
 - Updating Alice's balance changes the state root.
 - Updating a contract storage slot changes that account's storage root and then the global state root.
 - Rewriting a storage slot to the same value leaves the final root unchanged.
+
+Milestone 3 notes:
+
+- `State` keeps storage tries in memory per account address.
+- `State::set_storage_slot` returns `StateError` when the account is missing or when the account has a non-empty storage root that this in-memory state cannot reconstruct.
+- Delete/tombstone behavior is still deferred because `MptTrie` delete is not implemented yet.
+- Account trie and storage trie both use `MptTrie`, but they do not yet share a database backend. A database trait and shared `MemoryDb` are part of Milestone 5.
 
 ## Milestone 4: Add Transaction and Receipt Tries
 
