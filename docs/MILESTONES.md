@@ -160,6 +160,8 @@ Milestone 4 notes:
 
 Purpose: separate trie/state logic from storage backend so later code can use memory, file, or embedded DB storage.
 
+Status: completed for the in-memory database abstraction layer. The project now has a `NodeDatabase` trait, a `MemoryNodeDb` implementation, and `MptTrie<Db = MemoryNodeDb>` that depends on the trait instead of directly depending on `HashMap`. Trie state can be split into `(database, root)` and reopened with the same database and saved root. Account, storage, transaction, receipt, and `State` account snapshots now have tests covering root/database reopen behavior. File-backed databases, staged overlays, and full storage-trie persistence inside `State` are deferred.
+
 Deliverables:
 
 - Define a node database trait, for example:
@@ -177,6 +179,17 @@ Acceptance criteria:
 - Trie code depends on a database trait, not directly on `HashMap`.
 - Tests can run with `MemoryDb`.
 - A state root can be saved and later used to reopen/read the same state from the same database.
+
+Milestone 5 notes:
+
+- `MptNodeDb` remains as a compatibility alias for `MemoryNodeDb`.
+- `MptTrie::new()` still creates an in-memory trie, preserving the existing public API.
+- `MptTrie::with_db(db)` allows callers to supply a custom node database implementation.
+- `MptTrie::into_parts()` and `MptTrie::from_root(db, root)` support root/database snapshots.
+- `AccountTrie`, `StorageTrie`, transaction trie builders, receipt trie builders, and `State` account snapshots can be reopened from saved root/database pairs.
+- `State` can reopen account state from a saved account root/database, but its per-account storage trie map is still in-memory and not fully persisted as a state snapshot.
+- No file-backed or embedded database implementation exists yet.
+- There is still no staged overlay, rollback, or block-level commit model.
 
 ## Milestone 6: Define Block and Execution Types
 

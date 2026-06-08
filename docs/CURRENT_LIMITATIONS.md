@@ -88,4 +88,25 @@ Milestone 4 added ordered transaction and receipt roots.
 - Non-inclusion proofs and delete are still not implemented.
 - There is no staged state, rollback, or block-level commit model.
 
-This is acceptable for Milestone 4. Later milestones should add database abstraction, block types, and block execution without treating the current in-memory MPT as a complete Ethereum-compatible trie.
+## After Milestone 5
+
+Milestone 5 added an in-memory node database abstraction and root/database snapshots.
+
+- `NodeDatabase` defines the raw node database boundary.
+- `MemoryNodeDb` is the default in-memory node database implementation.
+- `MptNodeDb` remains as a compatibility alias for `MemoryNodeDb`.
+- `MptTrie<Db = MemoryNodeDb>` depends on the `NodeDatabase` trait instead of directly depending on `HashMap`.
+- `MptTrie::with_db(db)` supports custom node database implementations.
+- `MptTrie::into_parts()` and `MptTrie::from_root(db, root)` support reopening a trie from a saved root and database.
+- `AccountTrie` and `StorageTrie` can be reopened from saved root/database pairs.
+- Transaction and receipt trie builders return tries that can be split and reopened from saved root/database pairs.
+- `State` can reopen its account trie from a saved account root/database.
+- `State` storage tries are still kept in a per-address in-memory map and are not fully captured by `State::into_account_parts`.
+- There is no file-backed or embedded database implementation yet.
+- There is no shared persistent database across account trie, storage tries, transaction trie, and receipt trie at the full execution-state level.
+- There is no staged overlay, rollback, or block-level commit model.
+- Non-inclusion proofs and delete are still not implemented.
+- There are still no block types, headers, or block processor.
+- Transaction validation and transaction-driven state transitions are not implemented.
+
+This is acceptable for Milestone 5. Later milestones should add block types, block execution, and eventually durable storage backends without treating the current in-memory MPT as a complete Ethereum-compatible trie.
