@@ -227,6 +227,16 @@ pub trait NodeDatabase {
     fn put_node_bytes(&mut self, encoded_node: Vec<u8>) -> Hash;
 
     fn get_node_bytes(&self, hash: Hash) -> Option<Vec<u8>>;
+
+    fn put_node(&mut self, node: &MptNode) -> Hash {
+        self.put_node_bytes(node.encode())
+    }
+
+    fn get_node(&self, hash: Hash) -> Option<MptNode> {
+        let encoded = self.get_node_bytes(hash)?;
+
+        MptNode::decode(&encoded)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -242,8 +252,7 @@ impl MemoryNodeDb {
     }
 
     pub fn put(&mut self, node: &MptNode) -> Hash {
-        let encoded = node.encode();
-        self.put_node_bytes(encoded)
+        self.put_node(node)
     }
 
     pub fn get(&self, hash: Hash) -> Option<MptNode> {
@@ -282,20 +291,24 @@ impl NodeDatabase for MemoryNodeDb {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MptTrie {
-    db: MptNodeDb,
+pub struct MptTrie<Db = MemoryNodeDb> {
+    db: Db,
     root: Option<Hash>,
 }
-
-impl MptTrie {
+impl MptTrie<MemoryNodeDb> {
     pub fn new() -> Self {
-        MptTrie { 
-            db: MptNodeDb::new(), 
-            root: None,
-        }
+        Self::with_db(MemoryNodeDb::new())
     }
+}
 
-    pub fn from_root(db: MptNodeDb, root: Hash) -> Self {
+impl<Db> MptTrie<Db>
+where 
+    Db: NodeDatabase,
+ {
+    pub fn with_db(db: Db) -> Self {
+        Self { db, root: None }
+    }
+    pub fn from_root(db: Db, root: Hash) -> Self {
         MptTrie { db, root: Some(root) }
     }
 
@@ -312,7 +325,7 @@ impl MptTrie {
         let mut remaining_path= nibbles.as_slice();
 
         loop {
-            let node = self.db.get(current_hash)?;
+            let node = self.db.get_node(current_hash)?;
 
             match node {
                 MptNode::Branch { children, value } => {
@@ -345,8 +358,8 @@ impl MptTrie {
         let mut proof = Vec::new();
 
         loop {
-            let encoded_node = self.db.get_encoded(current_hash)?;
-            let node = MptNode::decode(encoded_node)?;
+            let encoded_node = self.db.get_node_bytes(current_hash)?;
+            let node = MptNode::decode(&encoded_node)?;
 
             proof.push(encoded_node.to_vec());
             match node {
@@ -383,12 +396,12 @@ impl MptTrie {
 
     fn insert_at(&mut self, node_hash: Option<Hash>, path: &[Nibble], value: Vec<u8>) -> Hash {
         let Some(node_hash) = node_hash else {
-            return self.db.put(&MptNode::leaf(path.to_vec(), value));
+            return self.db.put_node(&MptNode::leaf(path.to_vec(), value));
         };
 
         let node = self
             .db
-            .get(node_hash)
+            .get_node(node_hash)
             .expect("stored MPT node should decode");
 
         match node {
@@ -422,7 +435,7 @@ impl MptTrie {
             children[child_index] = Some(new_child);
         }
 
-        self.db.put(&MptNode::Branch { 
+        self.db.put_node(&MptNode::Branch { 
             children: *children, 
             value: branch_value, 
         })
@@ -437,7 +450,7 @@ impl MptTrie {
         let shared_len = common_prefix_len(&existing_path, new_path);
 
         if shared_len == existing_path.len() && shared_len == new_path.len() {
-            return self.db.put(&MptNode::leaf(existing_path, new_value));
+            return self.db.put_node(&MptNode::leaf(existing_path, new_value));
         }
 
         let branch_hash  = self.make_branch_from_two_paths(
@@ -460,7 +473,7 @@ impl MptTrie {
 
         if shared_len == extension_path.len() {
             let new_child = self.insert_at(Some(child), &new_path[shared_len..], new_value);
-            return self.db.put(&MptNode::extension(extension_path, new_child));
+            return self.db.put_node(&MptNode::extension(extension_path, new_child));
         }
 
         let mut children = [None; 16];
@@ -472,7 +485,7 @@ impl MptTrie {
             child
         } else {
             self.db
-                .put(&MptNode::extension(old_remaining[1..].to_vec(), child))
+                .put_node(&MptNode::extension(old_remaining[1..].to_vec(), child))
         });
 
         self.attach_value_to_branch(
@@ -482,7 +495,7 @@ impl MptTrie {
             new_value,
         );
 
-        let branch_hash = self.db.put(&MptNode::Branch { 
+        let branch_hash = self.db.put_node(&MptNode::Branch { 
             children, 
             value: branch_value,
         });
@@ -503,7 +516,7 @@ impl MptTrie {
         self.attach_value_to_branch(&mut children, &mut branch_value, old_path, old_value);
         self.attach_value_to_branch(&mut children, &mut branch_value, new_path, new_value);
 
-        self.db.put(&MptNode::Branch { 
+        self.db.put_node(&MptNode::Branch { 
             children, 
             value: branch_value,
         })
@@ -522,14 +535,14 @@ impl MptTrie {
         }
 
         let child_index = path[0] as usize;
-        children[child_index] = Some(self.db.put(&MptNode::leaf(path[1..].to_vec(), value)));
+        children[child_index] = Some(self.db.put_node(&MptNode::leaf(path[1..].to_vec(), value)));
     }
     fn wrap_shared_path(&mut self, shared_path: &[Nibble], child: NodeRef) -> Hash {
         if shared_path.is_empty() {
             child
         } else {
             self.db
-                .put(&MptNode::extension(shared_path.to_vec(), child))
+                .put_node(&MptNode::extension(shared_path.to_vec(), child))
         }
     }
 }
@@ -583,6 +596,21 @@ pub fn verify_mpt_proof(root: Hash, key: &[u8], expected_value: &[u8], proof: &[
 #[cfg(test)]
 mod tests {
 use super::*;
+
+    #[derive(Debug, Clone, Default)]
+    struct TestNodeDb {
+        inner: MemoryNodeDb,
+    }
+
+    impl NodeDatabase for TestNodeDb {
+        fn get_node_bytes(&self, hash: Hash) -> Option<Vec<u8>> {
+            self.inner.get_node_bytes(hash)
+        }
+
+        fn put_node_bytes(&mut self, encoded_node: Vec<u8>) -> Hash {
+            self.inner.put_node_bytes(encoded_node)
+        }
+    }
 
     #[test]
     fn branch_starts_empty() {
@@ -840,6 +868,7 @@ use super::*;
         assert_eq!(hash, keccak256(&encoded_node));
         assert_eq!(MemoryNodeDb::get_node_bytes(&db, hash), Some(encoded_node))
     }
+
     #[test]
     fn memory_node_db_alias_keeps_existing_memory_db_api() {
         let mut db = MptNodeDb::new();
@@ -847,6 +876,16 @@ use super::*;
 
         let hash = db.put(&node);
         assert_eq!(db.get(hash), Some(node));
+    }
+
+    #[test]
+    fn mpt_trie_works_with_custom_node_database() {
+        let mut trie = MptTrie::with_db(TestNodeDb::default());
+
+        trie.insert(b"alice", b"1000".to_vec());
+
+        assert_eq!(trie.get(b"alice"), Some(b"1000".to_vec()));
+        assert_eq!(trie.get(b"bob"), None);
     }
     #[test]
     fn node_db_deduplicates_identical_nodes_by_hash() {
