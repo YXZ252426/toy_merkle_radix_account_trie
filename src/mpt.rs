@@ -316,6 +316,14 @@ where
         self.root.unwrap_or([0u8; 32])
     }
 
+    pub fn root(&self) -> Option<Hash> {
+        self.root
+    }
+
+    pub fn into_parts(self) -> (Db, Option<Hash>){
+        (self.db, self.root)
+    }
+
     pub fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         let nibbles = bytes_to_nibbles(key);
         let mut current_hash = self.root?;
@@ -913,9 +921,27 @@ use super::*;
         let trie = MptTrie::new();
 
         assert_eq!(trie.root_hash(), [0u8; 32]);
+        assert_eq!(trie.root(), None);
         assert_eq!(trie.get(b"\x12"), None);
     }
 
+    #[test]
+    fn mpt_trie_reopens_from_saved_root_and_database() {
+        let mut trie = MptTrie::new();
+
+        trie.insert(b"alice", b"2000".to_vec());
+        trie.insert(b"bob", b"3000".to_vec());
+
+        let root = trie.root_hash();
+        let (db, saved_root) = trie.into_parts();
+        let reopened = MptTrie::from_root(db, root);
+
+        assert_eq!(saved_root, Some(root));
+        assert_eq!(reopened.root(), Some(root));
+        assert_eq!(reopened.get(b"alice"), Some(b"2000".to_vec()));
+        assert_eq!(reopened.get(b"bob"), Some(b"3000".to_vec()));
+        assert_eq!(reopened.get(b"carol"), None);
+    }
     #[test]
     fn mpt_get_reads_root_leaf_on_exact_path(){
         let mut db = MptNodeDb::new();
