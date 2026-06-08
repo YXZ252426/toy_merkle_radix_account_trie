@@ -223,23 +223,27 @@ impl MptNode {
     }
 }
 
+pub trait NodeDatabase {
+    fn put_node_bytes(&mut self, encoded_node: Vec<u8>) -> Hash;
+
+    fn get_node_bytes(&self, hash: Hash) -> Option<Vec<u8>>;
+}
+
 #[derive(Debug, Clone, Default)]
-pub struct MptNodeDb {
+pub struct MemoryNodeDb {
     nodes: HashMap<Hash, Vec<u8>>,
 }
 
-impl MptNodeDb {
+pub type MptNodeDb = MemoryNodeDb;
+
+impl MemoryNodeDb {
     pub fn new() -> Self {
         Self { nodes: HashMap::new(), }
     }
 
     pub fn put(&mut self, node: &MptNode) -> Hash {
         let encoded = node.encode();
-        let hash = keccak256(&encoded);
-
-        self.nodes.insert(hash, encoded);
-        
-        hash
+        self.put_node_bytes(encoded)
     }
 
     pub fn get(&self, hash: Hash) -> Option<MptNode> {
@@ -262,6 +266,18 @@ impl MptNodeDb {
 
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
+    }
+}
+
+impl NodeDatabase for MemoryNodeDb {
+    fn get_node_bytes(&self, hash: Hash) -> Option<Vec<u8>> {
+        self.nodes.get(&hash).cloned()
+    }
+
+    fn put_node_bytes(&mut self, encoded_node: Vec<u8>) -> Hash {
+        let hash = keccak256(&encoded_node);
+        self.nodes.insert(hash, encoded_node);
+        hash
     }
 }
 
@@ -813,6 +829,25 @@ use super::*;
         assert_eq!(db.get_encoded(hash), Some(encoded.as_slice()));
     }
 
+    #[test]
+    fn memory_node_db_trait_stores_encoded_nodes() {
+        let mut db = MemoryNodeDb::new();
+        let node = MptNode::leaf(vec![0x01, 0x02], b"value".to_vec());
+        let encoded_node = node.encode();
+
+        let hash = MemoryNodeDb::put_node_bytes(&mut db, encoded_node.clone());
+
+        assert_eq!(hash, keccak256(&encoded_node));
+        assert_eq!(MemoryNodeDb::get_node_bytes(&db, hash), Some(encoded_node))
+    }
+    #[test]
+    fn memory_node_db_alias_keeps_existing_memory_db_api() {
+        let mut db = MptNodeDb::new();
+        let node = MptNode::leaf(vec![0x01], b"value".to_vec());
+
+        let hash = db.put(&node);
+        assert_eq!(db.get(hash), Some(node));
+    }
     #[test]
     fn node_db_deduplicates_identical_nodes_by_hash() {
         let mut db = MptNodeDb::new();
