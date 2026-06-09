@@ -1,10 +1,109 @@
 use std::collections::HashMap;
 
+use rlp::{DecoderError, Rlp, RlpStream};
+
 use crate::account::{Account, AccountTrie};
+use crate::crypto::keccak256;
 use crate::mpt::MptNodeDb;
 use crate::storage::{StorageKey, StorageTrie, StorageValue};
 use crate::types::{Address, Hash};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Header {
+    pub parent_hash: Hash,
+    pub number: u64,
+    pub state_root: Hash,
+    pub transactions_root: Hash,
+    pub receipts_root: Hash,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderDecodeError {
+    InvalidRlp(DecoderError),
+    InvalidParentHashLength(usize),
+    InvalidStateRootLength(usize),
+    InvalidTransactionsRootLength(usize),
+    InvalidReceiptsRootLength(usize),
+}
+
+impl Header {
+    pub fn new(
+        parent_hash: Hash,
+        number: u64,
+        state_root: Hash,
+        transactions_root: Hash,
+        receipts_root: Hash,
+        timestamp: u64,
+    ) -> Self{
+        Self { 
+            parent_hash, 
+            number, 
+            state_root, 
+            transactions_root, 
+            receipts_root, 
+            timestamp, 
+        }
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut stream = RlpStream::new_list(6);
+
+        stream.append(&self.parent_hash.to_vec());
+        stream.append(&self.number);
+        stream.append(&self.state_root.to_vec());
+        stream.append(&self.transactions_root.to_vec());
+        stream.append(&self.receipts_root.to_vec());
+        stream.append(&self.timestamp);
+
+        stream.out().to_vec()
+    }
+
+    pub fn hash(&self) -> Hash {
+        keccak256(&self.encode())
+    }
+
+    pub fn try_decode(bytes: &[u8]) -> Result<Self, HeaderDecodeError> {
+        let rlp = Rlp::new(bytes);
+
+        let parent_hash_vec: Vec<u8> = rlp.val_at(0).map_err(HeaderDecodeError::InvalidRlp)?;
+        let number: u64 = rlp.val_at(1).map_err(HeaderDecodeError::InvalidRlp)?;
+        let state_root_vec: Vec<u8> = rlp.val_at(2).map_err(HeaderDecodeError::InvalidRlp)?;
+        let transactions_root_vec: Vec<u8> =
+            rlp.val_at(3).map_err(HeaderDecodeError::InvalidRlp)?;
+        let receipts_root_vec: Vec<u8> = rlp.val_at(4).map_err(HeaderDecodeError::InvalidRlp)?;
+        let timestamp: u64 = rlp.val_at(5).map_err(HeaderDecodeError::InvalidRlp)?;
+
+        Ok(Self { 
+            parent_hash: decode_hash(parent_hash_vec, HeaderDecodeError::InvalidParentHashLength)?, 
+            number, 
+            state_root: decode_hash(state_root_vec, HeaderDecodeError::InvalidStateRootLength)?, 
+            transactions_root: decode_hash(
+                transactions_root_vec, 
+                HeaderDecodeError::InvalidTransactionsRootLength,
+            )?,
+            receipts_root: decode_hash(
+                receipts_root_vec, 
+                HeaderDecodeError::InvalidReceiptsRootLength,
+            )?, 
+            timestamp 
+        })
+    }
+}
+
+fn decode_hash (
+    bytes: Vec<u8>,
+    error: impl FnOnce(usize) -> HeaderDecodeError,
+) -> Result<Hash, HeaderDecodeError> {
+    if bytes.len() != 32 {
+        return Err(error(bytes.len()));
+    }
+
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&bytes);
+    
+    Ok(hash)
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StateError {
     AccountNotFound(Address),
@@ -119,6 +218,58 @@ impl State {
 #[cfg(test)]
 mod tests {
 use super::*;
+
+    fn sample_header() -> Header {
+        Header::new(
+            [0x11u8; 32],
+            7,
+            [0x22u8; 32],
+            [0x33u8; 32],
+            [0x44u8; 32],
+            1_700_000_000,
+        )
+    }
+
+    #[test]
+    fn header_rlp_round_trips() {
+        let header = sample_header();
+
+        let decoded = Header::try_decode(&header.encode()).expect("header should decode");
+
+        assert_eq!(decoded, header);
+    }
+
+    #[test]
+    fn header_hash_is_deterministic() {
+        let header = sample_header();
+
+        assert_eq!(header.hash(), header.hash());
+        assert_eq!(header.hash(), keccak256(&header.encode()));
+    }
+
+    #[test]
+    fn header_hash_changes_when_root_changes() {
+        let header = sample_header();
+        let mut changed_header = header.clone();
+        changed_header.state_root = [0x55u8; 32];
+
+        assert_ne!(header.hash(), changed_header.hash());
+    }
+
+    #[test]
+    fn header_decode_rejects_invalid_root_length() {
+        let mut stream = RlpStream::new_list(6);
+        stream.append(&vec![0x11u8; 32]);
+        stream.append(&7u64);
+        stream.append(&vec![0x22u8; 31]);
+        stream.append(&vec![0x33u8; 32]);
+        stream.append(&vec![0x44u8; 32]);
+        stream.append(&1_700_000_000u64);
+
+        let result = Header::try_decode(&stream.out());
+
+        assert_eq!(result, Err(HeaderDecodeError::InvalidStateRootLength(31)));
+    }
 
     #[test]
     fn empty_state_has_empty_account_root() {
