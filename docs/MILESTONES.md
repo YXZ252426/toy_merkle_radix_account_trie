@@ -195,6 +195,8 @@ Milestone 5 notes:
 
 Purpose: create the objects the execution layer will process.
 
+Status: completed for the first execution data model. The project now has deterministic `Header` and `Block` encoding/decoding and hashing, an `ExecutionResult` that carries post-state and derived transaction/receipt roots, an `ExecutionError` type for later block processing, and a `build_header` helper that derives header roots from actual transactions and receipts. Transaction execution and root validation during block processing are deferred to Milestone 7.
+
 Deliverables:
 
 - Define `Header`:
@@ -219,6 +221,17 @@ Acceptance criteria:
 
 - A block can be encoded/decoded or at least deterministically hashed.
 - Header roots are derived from actual state, transactions, and receipts.
+
+Milestone 6 notes:
+
+- `Header` stores parent hash, block number, state root, transaction root, receipt root, and timestamp.
+- `Block` stores a header plus ordered transactions.
+- Header and block hashes are deterministic hashes of their encoded forms.
+- `ExecutionResult` derives transaction and receipt roots from ordered transactions and receipts.
+- `build_header` derives transaction and receipt roots instead of requiring callers to pass precomputed root fields.
+- Consensus fields are intentionally minimal.
+- There is still no executor or block processor. Blocks can be represented and hashed, but not applied to state yet.
+- Header root validation happens only through tests and helper construction. Processing an externally supplied block and checking its roots is part of Milestone 7.
 
 ## Milestone 7: Implement State Transition and Block Processing
 

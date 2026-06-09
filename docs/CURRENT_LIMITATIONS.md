@@ -110,3 +110,27 @@ Milestone 5 added an in-memory node database abstraction and root/database snaps
 - Transaction validation and transaction-driven state transitions are not implemented.
 
 This is acceptable for Milestone 5. Later milestones should add block types, block execution, and eventually durable storage backends without treating the current in-memory MPT as a complete Ethereum-compatible trie.
+
+## After Milestone 6
+
+Milestone 6 added the first block and execution result data model.
+
+- `Header` is implemented with parent hash, number, state root, transaction root, receipt root, and timestamp.
+- `Header` has deterministic RLP encoding/decoding and hashing.
+- `Block` is implemented as a header plus ordered transactions.
+- `Block` has deterministic RLP encoding/decoding and hashing.
+- `ExecutionResult` records the post-state root, receipts, transaction root, and receipt root.
+- `ExecutionResult::new` derives transaction and receipt roots from ordered inputs.
+- `build_header` derives transaction and receipt roots from actual transaction and receipt lists.
+- `ExecutionError` exists as the shared error shape for upcoming transaction and block execution.
+- Blocks are representable and hashable, but they are not executed yet.
+- Header roots are not validated against an externally supplied block during processing because there is no block processor yet.
+- Receipts are still supplied directly by callers and are not generated from state transitions.
+- Transaction validation is still not implemented.
+- Transfer execution is still not implemented.
+- There is no atomic block execution, staged overlay, rollback, or block-level commit model.
+- `State` storage tries are still kept in a per-address in-memory map and are not fully captured by `State::into_account_parts`.
+- There is no file-backed or embedded database implementation yet.
+- Non-inclusion proofs and delete are still not implemented.
+
+This is acceptable for Milestone 6. Milestone 7 should turn these data types into a real execution loop: apply transactions to state, emit receipts, compute roots, and validate block headers.
