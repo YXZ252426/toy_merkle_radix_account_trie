@@ -127,6 +127,27 @@ pub fn build_header(
     )
 }
 
+pub fn build_block(
+    parent_hash: Hash,
+    number: u64,
+    timestamp: u64,
+    parent_state: &State,
+    transactions: Vec<Transaction>,
+) -> Result<Block, ExecutionError> {
+    let mut working_state = parent_state.clone();
+    let result = working_state.apply_transactions(&transactions)?;
+
+    let header = build_header(
+        parent_hash, 
+        number, 
+        result.post_state_root, 
+        &transactions, 
+        &result.receipts, 
+        timestamp
+    );
+    Ok(Block::new(header, transactions))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub header: Header,
@@ -619,6 +640,62 @@ use super::*;
         assert_ne!(header.hash(), changed_header.hash());
     }
 
+    #[test]
+    fn build_block_constructs_processable_block_without_changin_parent_state() {
+        let (state, alice, bob) = sample_state_with_accounts();
+        let parent_root = state.root_hash();
+        let transactions = vec![
+            Transaction::new_transfer(alice, bob, 0, 100),
+            Transaction::new_transfer(alice, bob, 1, 50),
+        ];
+        let mut expected_state = state.clone();
+        let expected_result = expected_state
+            .apply_transactions(&transactions)
+            .expect("transactions should apply");
+        let block = build_block([0x99u8; 32], 1, 1_700_000_001, &state, transactions.clone())
+            .expect("block should build");
+
+        assert_eq!(state.root_hash(), parent_root);
+        assert_eq!(block.transactions, transactions);
+        assert_eq!(block.header.parent_hash, [0x99u8; 32]);
+        assert_eq!(block.header.number, 1);
+        assert_eq!(block.header.timestamp, 1_700_000_001);
+        assert_eq!(block.header.state_root, expected_result.post_state_root);
+        assert_eq!(block.header.transactions_root, expected_result.transactions_root);
+        assert_eq!(block.header.receipts_root, expected_result.receipts_root);
+
+        let mut processing_state = state.clone();
+        let result = processing_state
+            .process_block(&block)
+            .expect("built block should process");
+        assert_eq!(result, expected_result);
+        assert_eq!(processing_state.root_hash(), expected_state.root_hash()); 
+    }
+
+    #[test]
+    fn build_block_rejects_invalid_transactions_without_changing_parent_state() {
+        let (state, alice, bob) = sample_state_with_accounts();
+        let parent_root = state.root_hash();
+        let transactions = vec![Transaction::new_transfer(alice, bob, 1, 100)];
+
+        let result = build_block([0x99u8; 32], 1, 1_700_000_001, &state, transactions);
+
+        assert_eq!(
+            result,
+            Err(ExecutionError::TransactionFailed {
+                index: 0,
+                error: Box::new(ExecutionError::InvalidNonce {
+                    address: alice,
+                    expected: 0,
+                    actual: 1,
+                }),
+            })
+        );
+        assert_eq!(state.root_hash(), parent_root);
+        assert_eq!(state.get_account(alice).unwrap().balance, 1_000);
+        assert_eq!(state.get_account(bob).unwrap().balance, 50);
+    }
+    
     #[test]
     fn block_rlp_round_trips() {
         let block = sample_block();
