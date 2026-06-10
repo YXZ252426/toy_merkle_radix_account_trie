@@ -134,3 +134,32 @@ Milestone 6 added the first block and execution result data model.
 - Non-inclusion proofs and delete are still not implemented.
 
 This is acceptable for Milestone 6. Milestone 7 should turn these data types into a real execution loop: apply transactions to state, emit receipts, compute roots, and validate block headers.
+
+## After Milestone 7
+
+Milestone 7 added the first complete transfer-only execution loop.
+
+- `State::apply_transaction` executes one simple transfer transaction.
+- Transfer execution validates sender existence, recipient existence, nonce, sender balance, recipient balance overflow, and sender nonce overflow.
+- A successful transfer updates sender balance, recipient balance, sender nonce, and the account trie state root.
+- Self-transfer is supported and only increments the sender nonce.
+- Successful transactions emit a simple `Receipt::success(21_000)`.
+- `State::apply_transactions` executes an ordered transaction list and returns an `ExecutionResult`.
+- Batch transaction execution is atomic: the original state is updated only if every transaction succeeds.
+- `State::process_block` validates the transaction root before execution.
+- `State::process_block` validates computed receipt and post-state roots against the block header before committing state.
+- Empty blocks are supported and keep the state root unchanged.
+- Reprocessing the same block from the same parent state is deterministic.
+- Header root mismatch errors leave the original state unchanged.
+- Transaction execution errors inside a block leave the original state unchanged.
+- The execution model currently rejects the whole batch/block on the first failed transaction.
+- Failed transactions do not produce failure receipts, consume gas, or remain in the block.
+- Gas accounting is still a placeholder fixed receipt value.
+- There are no transaction fees, miner/beneficiary rewards, or gas refunds.
+- Only simple value transfers are executable. Contract calls, contract creation, storage-writing transactions, logs, and code execution are not implemented.
+- The atomic working state is implemented by cloning in-memory state, not by a durable staged overlay.
+- `State` storage tries are still kept in a per-address in-memory map and are not fully captured by `State::into_account_parts`.
+- There is no file-backed or embedded database implementation yet.
+- Non-inclusion proofs and delete are still not implemented.
+
+This is acceptable for Milestone 7. Milestone 8 should expose these capabilities through a cleaner public API and examples so callers can build genesis state, build/process blocks, and query state without touching trie internals.

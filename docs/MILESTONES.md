@@ -237,6 +237,8 @@ Milestone 6 notes:
 
 Purpose: reach the first complete execution-layer loop: input parent state plus block transactions, output new state root.
 
+Status: completed for the first atomic transfer-only execution loop. `State` can apply a single transfer transaction, apply an ordered transaction list atomically, produce receipts and an `ExecutionResult`, and process a `Block` while validating transaction, receipt, and post-state roots against the header. Transaction failure rejects the whole batch/block and leaves the original state unchanged. More advanced transaction types, per-transaction failure receipts, durable staged overlays, gas accounting, and contract execution are deferred.
+
 Deliverables:
 
 - Implement `Executor` or `BlockProcessor`.
@@ -259,6 +261,19 @@ Acceptance criteria:
 - Given a genesis state and one block, processing changes balances and returns a new state root.
 - Invalid nonce or insufficient balance fails predictably.
 - Reprocessing the same block from the same parent state produces the same result.
+
+Milestone 7 notes:
+
+- `State::apply_transaction` handles simple transfer transactions.
+- Transfer execution checks sender existence, recipient existence, nonce, sender balance, recipient balance overflow, and sender nonce overflow.
+- Successful transfers update sender balance, recipient balance, sender nonce, and the state root.
+- Self-transfers only increment the sender nonce.
+- `State::apply_transactions` executes an ordered transaction list atomically by applying changes to a cloned working state before committing.
+- `ExecutionResult` is produced from the post-state root, ordered transactions, and generated receipts.
+- `State::process_block` validates the block transaction root before execution, then validates computed receipt and post-state roots before committing.
+- Failed transactions and header root mismatches leave the original `State` unchanged.
+- The current failure model is whole-batch rejection. The project does not yet model Ethereum-style failed transaction receipts that still consume gas and remain in the block.
+- The atomic working state is implemented with an in-memory clone, not a durable staged overlay.
 
 ## Milestone 8: Public Library API and Examples
 
