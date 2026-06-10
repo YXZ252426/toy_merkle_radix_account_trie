@@ -244,6 +244,10 @@ pub enum ExecutionError {
         nonce: u64,
     },
     State(StateError),
+    TransactionFailed {
+        index: usize,
+        error: Box<ExecutionError>,
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StateError {
@@ -411,6 +415,28 @@ impl State {
         self.update_account(transaction.to, recipient);
 
         Ok(Receipt::success(SIMPLE_TRANSFER_GAS_USED))
+    }
+
+    pub fn apply_transactions(
+        &mut self,
+        transactions: &[Transaction],
+    ) -> Result<ExecutionResult, ExecutionError> {
+        let mut working_state = self.clone();
+        let mut receipts = Vec::with_capacity(transactions.len());
+
+        for (index, transaction) in transactions.iter().enumerate() {
+            let receipt = working_state
+                .apply_transaction(transaction)
+                .map_err(|err| ExecutionError::TransactionFailed { 
+                    index, 
+                    error: Box::new(err), 
+                })?;
+            receipts.push(receipt);
+        }
+        let result = ExecutionResult::new(working_state.root_hash(), transactions, receipts);
+        *self = working_state;
+
+        Ok(result)
     }
 }
 
@@ -994,6 +1020,78 @@ use super::*;
         assert_eq!(state.root_hash(), root);
         assert_eq!(state.get_account(alice).unwrap().nonce, u64::MAX);
         assert_eq!(state.get_account(alice).unwrap().balance, 100);
+        assert_eq!(state.get_account(bob).unwrap().balance, 50);
+    }
+
+    #[test]
+    fn apply_transactions_runs_in_order_and_returns_execution_result() {
+        let (mut state, alice, bob)= sample_state_with_accounts();
+        let transactions = vec![
+            Transaction::new_transfer(alice, bob, 0, 100),
+            Transaction::new_transfer(alice, bob, 1, 50),
+        ];
+
+        let result = state.apply_transactions(&transactions).unwrap();
+
+        let alice_accout = state.get_account(alice).unwrap();
+        let bob_account = state.get_account(bob).unwrap();
+
+        assert_eq!(alice_accout.nonce, 2);
+        assert_eq!(alice_accout.balance, 850);
+        assert_eq!(bob_account.balance, 200);
+        assert_eq!(result.post_state_root, state.root_hash());
+        assert_eq!(
+            result.receipts,
+            vec![
+                Receipt::success(SIMPLE_TRANSFER_GAS_USED),
+                Receipt::success(SIMPLE_TRANSFER_GAS_USED),
+            ] 
+        );
+        assert_eq!(result.transactions_root, transaction_root(&transactions));
+        assert_eq!(result.receipts_root, receipt_root(&result.receipts));
+    }
+
+    #[test]
+    fn apply_transactions_empty_list_returns_current_root() {
+        let (mut state, _, _) = sample_state_with_accounts();
+        let root = state.root_hash();
+
+        let result = state
+            .apply_transactions(&[])
+            .expect("empty transaction list should apply");
+
+        assert_eq!(state.root_hash(), root);
+        assert_eq!(result.post_state_root, root);
+        assert_eq!(result.receipts, Vec::<Receipt>::new());
+        assert_eq!(result.transactions_root, transaction_root(&[]));
+        assert_eq!(result.receipts_root, receipt_root(&[]));
+    }
+
+    #[test]
+    fn apply_transactions_rejects_failed_transaction_without_committing_state() {
+        let (mut state, alice, bob) = sample_state_with_accounts();
+        let root = state.root_hash();
+        let transactions = vec![
+            Transaction::new_transfer(alice, bob, 0, 100),
+            Transaction::new_transfer(alice, bob, 0, 50),
+        ];
+
+        let result = state.apply_transactions(&transactions);
+
+        assert_eq!(
+            result,
+            Err(ExecutionError::TransactionFailed {
+                index: 1,
+                error: Box::new(ExecutionError::InvalidNonce {
+                    address: alice,
+                    expected: 1,
+                    actual: 0,
+                }),
+            })
+        );
+        assert_eq!(state.root_hash(), root);
+        assert_eq!(state.get_account(alice).unwrap().nonce, 0);
+        assert_eq!(state.get_account(alice).unwrap().balance, 1_000);
         assert_eq!(state.get_account(bob).unwrap().balance, 50);
     }
 }
