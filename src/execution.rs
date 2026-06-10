@@ -1264,4 +1264,95 @@ use super::*;
         assert_eq!(state.get_account(alice).unwrap().balance, 1_000);
         assert_eq!(state.get_account(bob).unwrap().balance, 50);
     }
+
+
+    #[test]
+    fn process_block_empty_block_keeps_state_root() {
+        let (mut state, _, _) = sample_state_with_accounts();
+        let root = state.root_hash();
+        let transactions = Vec::new();
+        let receipts = Vec::new();
+        let header = build_header(
+            [0x99u8; 32],
+            1,
+            root,
+            &transactions,
+            &receipts,
+            1_700_000_001,
+        );
+        let block = Block::new(header, transactions);
+
+        let result = state
+            .process_block(&block)
+            .expect("empty block should process");
+
+        assert_eq!(state.root_hash(), root);
+        assert_eq!(result.post_state_root, root);
+        assert_eq!(result.receipts, Vec::<Receipt>::new());
+        assert_eq!(result.transactions_root, transaction_root(&[]));
+        assert_eq!(result.receipts_root, receipt_root(&[]));
+    }
+
+    #[test]
+    fn process_block_rejects_failed_transaction_without_changing_state() {
+        let (mut state, alice, bob) = sample_state_with_accounts();
+        let root = state.root_hash();
+        let transactions = vec![
+            Transaction::new_transfer(alice, bob, 0, 100),
+            Transaction::new_transfer(alice, bob, 0, 50),
+        ];
+        let mut expected_state = state.clone();
+        let expected_error = expected_state
+            .apply_transactions(&transactions)
+            .expect_err("transaction sequence should fail");
+        let header = build_header([0x99u8; 32], 1, root, &transactions, &[], 1_700_000_001);
+        let block = Block::new(header, transactions);
+
+        let result = state.process_block(&block);
+
+        assert_eq!(result, Err(expected_error));
+        assert_eq!(state.root_hash(), root);
+        assert_eq!(state.get_account(alice).unwrap().nonce, 0);
+        assert_eq!(state.get_account(alice).unwrap().balance, 1_000);
+        assert_eq!(state.get_account(bob).unwrap().balance, 50);
+    }
+
+    #[test]
+    fn process_block_is_deterministic_from_same_parent_state() {
+        let (state, alice, bob) = sample_state_with_accounts();
+        let transactions = vec![
+            Transaction::new_transfer(alice, bob, 0, 100),
+            Transaction::new_transfer(alice, bob, 1, 50),
+        ];
+        let mut expected_state = state.clone();
+        let expected_result = expected_state
+            .apply_transactions(&transactions)
+            .expect("transactions should apply");
+        let header = build_header(
+            [0x99u8; 32],
+            1,
+            expected_result.post_state_root,
+            &transactions,
+            &expected_result.receipts,
+            1_700_000_001,
+        );
+        let block = Block::new(header, transactions);
+        let mut first_state = state.clone();
+        let mut second_state = state.clone();
+
+        let first_result = first_state
+            .process_block(&block)
+            .expect("first execution should process");
+        let second_result = second_state
+            .process_block(&block)
+            .expect("second execution should process");
+
+        assert_eq!(first_result, second_result);
+        assert_eq!(first_state.root_hash(), second_state.root_hash());
+        assert_eq!(
+            first_state.get_account(alice),
+            second_state.get_account(alice)
+        );
+        assert_eq!(first_state.get_account(bob), second_state.get_account(bob));
+    }
 }
