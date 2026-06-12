@@ -163,3 +163,30 @@ Milestone 7 added the first complete transfer-only execution loop.
 - Non-inclusion proofs and delete are still not implemented.
 
 This is acceptable for Milestone 7. Milestone 8 should expose these capabilities through a cleaner public API and examples so callers can build genesis state, build/process blocks, and query state without touching trie internals.
+
+## After Milestone 8
+
+Milestone 8 exposed the current execution loop through public helpers and runnable examples.
+
+- `build_genesis_state` creates a `State` from address/account pairs.
+- `build_block` builds a block from parent metadata, parent state, and ordered transactions.
+- `build_block` pre-executes transactions on a cloned state to derive the expected post-state, transaction, and receipt roots.
+- `State::process_block` remains the public API for applying a block and validating header roots.
+- Public APIs support account queries, storage queries, account proofs, and account proof verification.
+- `examples/account_proof.rs` demonstrates genesis state creation, account lookup, inclusion proof generation, and proof verification.
+- `examples/process_block.rs` demonstrates block construction and processing without touching trie internals.
+- `examples/storage_update.rs` demonstrates storage slot writes, state root changes, and account proof verification after a storage update.
+- Crate-level documentation shows the minimal execution flow from genesis state to processed block.
+- The library API is usable for simple follow-up projects that need an in-memory transfer-only execution layer.
+- The public API still exposes many low-level trie and legacy demo types.
+- The old branch-only `MerkleRadixTrie` is still exported for historical/demo compatibility.
+- There is still no Ethereum-style failed transaction receipt model.
+- Gas accounting is still a placeholder fixed receipt value.
+- There are still no transaction fees, miner/beneficiary rewards, gas refunds, logs, or bloom filters.
+- Contract calls, contract creation, storage-writing transactions, and code execution are not implemented.
+- The atomic working state still uses in-memory clone semantics, not a durable staged overlay.
+- `State` storage tries are still kept in a per-address in-memory map and are not fully captured by `State::into_account_parts`.
+- There is no file-backed or embedded database implementation yet.
+- Non-inclusion proofs, delete, and full Ethereum MPT inline-node compatibility are still not implemented.
+
+This is acceptable for Milestone 8. Milestone 9 should harden the public surface, audit panic/error boundaries, add more malformed input tests, and decide which legacy or low-level APIs should remain exported.

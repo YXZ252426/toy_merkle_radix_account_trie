@@ -279,6 +279,8 @@ Milestone 7 notes:
 
 Purpose: make the crate useful for follow-up projects without exposing internal details.
 
+Status: completed for the current transfer-only execution layer. The crate exposes public helpers for genesis state creation, block construction, block processing, account and storage queries, and proof verification. The project now includes runnable examples for account proofs, block processing, and storage updates, plus crate-level documentation showing the basic execution flow. API hardening and compatibility cleanup are deferred to Milestone 9.
+
 Deliverables:
 
 - Public API entry points:
@@ -299,6 +301,17 @@ Acceptance criteria:
 - A user can process a block without directly constructing trie internals.
 - Examples compile and run.
 - Public structs have stable names and clear ownership rules.
+
+Milestone 8 notes:
+
+- `build_genesis_state` creates a `State` from address/account pairs.
+- `build_block` constructs a processable block from a parent state and ordered transactions without mutating the parent state.
+- `State::process_block` is the public entry point for applying a block and validating header roots.
+- Account queries, storage queries, account proofs, and proof verification are available through public APIs.
+- `examples/account_proof.rs` demonstrates account lookup and proof verification.
+- `examples/process_block.rs` demonstrates genesis creation, block construction, block processing, and root validation.
+- `examples/storage_update.rs` demonstrates storage slot writes, state root changes, and post-update account proof verification.
+- Crate-level documentation now shows the minimal execution flow.
 
 ## Milestone 9: Hardening and Compatibility Pass
 

@@ -1,23 +1,55 @@
+//! A small Ethereum-like execution-layer library for learning account tries,
+//! storage tries, transaction roots, receipt roots, and block processing.
+//!
+//! The crate intentionally keeps execution narrow: simple value-transfer
+//! transactions, in-memory state, deterministic trie roots, and inclusion
+//! proofs. It is useful for studying the execution-layer data flow without
+//! introducing the EVM, networking, consensus, or full Ethereum compatibility.
+//!
+//! Typical flow:
+//!
+//! ```
+//! use toy_merkle_radix_account_trie::{
+//!     Account, Address, Transaction, build_block, build_genesis_state,
+//! };
+//!
+//! let alice: Address = [0x11; 20];
+//! let bob: Address = [0x22; 20];
+//! let mut state = build_genesis_state(vec![
+//!     (alice, Account::new_eoa(0, 1_000)),
+//!     (bob, Account::new_eoa(0, 0)),
+//! ]);
+//! let transactions = vec![Transaction::new_transfer(alice, bob, 0, 100)];
+//! let block = build_block([0; 32], 1, 1_700_000_000, &state, transactions)?;
+//! let result = state.process_block(&block)?;
+//!
+//! assert_eq!(result.post_state_root, state.root_hash());
+//! assert_eq!(state.get_account(alice).unwrap().balance, 900);
+//! assert_eq!(state.get_account(bob).unwrap().balance, 100);
+//! # Ok::<(), toy_merkle_radix_account_trie::ExecutionError>(())
+//! ```
+
 pub mod account;
 pub mod crypto;
 pub mod execution;
 pub mod mpt;
 pub mod storage;
-pub mod trie;
 pub mod transaction;
+pub mod trie;
 pub mod types;
 
 pub use account::{Account, AccountDecodeError, AccountTrie};
 pub use crypto::keccak256;
 pub use execution::{
     Block, BlockDecodeError, ExecutionError, ExecutionResult, Header, HeaderDecodeError, State,
-    StateError, build_header, build_block, build_genesis_state
+    StateError, build_block, build_genesis_state, build_header,
 };
 pub use mpt::{
     MemoryNodeDb, MptNode, MptNodeDb, MptTrie, Nibble, NodeDatabase, NodeRef, verify_mpt_proof,
 };
 pub use storage::{
-    StorageKey, StorageValue, StorageTrie, decode_storage_value, encode_storage_value, storage_trie_key,
+    StorageKey, StorageTrie, StorageValue, decode_storage_value, encode_storage_value,
+    storage_trie_key,
 };
 pub use transaction::{
     Receipt, ReceiptDecodeError, Transaction, TransactionDecodeError, build_receipt_trie,
