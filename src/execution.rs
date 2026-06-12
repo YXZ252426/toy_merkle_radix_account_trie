@@ -148,6 +148,15 @@ pub fn build_block(
     Ok(Block::new(header, transactions))
 }
 
+pub fn build_genesis_state(accouts: impl IntoIterator<Item = (Address, Account)>) -> State {
+    let mut state = State::new();
+
+    for (address, account) in accouts {
+        state.create_account(address, account);
+    }
+
+    state
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub header: Header,
@@ -694,6 +703,51 @@ use super::*;
         assert_eq!(state.root_hash(), parent_root);
         assert_eq!(state.get_account(alice).unwrap().balance, 1_000);
         assert_eq!(state.get_account(bob).unwrap().balance, 50);
+    }
+    
+    #[test]
+    fn build_genesis_state_creates_queryable_accounts() {
+        let alice = [0x11u8; 20];
+        let bob = [0x22u8; 20];
+        let alice_account = Account::new_eoa(0, 1_000);
+        let bob_account = Account::new_eoa(0, 50);
+
+        let state = build_genesis_state(vec![
+            (alice, alice_account.clone()),
+            (bob, bob_account.clone()),
+        ]);
+    
+        assert_eq!(state.get_account(alice), Some(alice_account));
+        assert_eq!(state.get_account(bob), Some(bob_account));
+        assert_eq!(state.get_account([0x33u8; 20]), None);
+    }
+
+     #[test]
+    fn build_genesis_state_empty_matches_empty_state() {
+        let state = build_genesis_state([]);
+
+        assert_eq!(state.root_hash(), State::new().root_hash());
+    }
+
+    #[test]
+    fn build_genesis_state_matches_manual_account_creation() {
+        let alice = [0x11u8; 20];
+        let bob = [0x22u8; 20];
+        let accounts = vec![
+            (alice, Account::new_eoa(0, 1_000)),
+            (bob, Account::new_eoa(0, 50)),
+        ];
+        let mut manual_state = State::new();
+
+        for (address, account) in accounts.clone() {
+            manual_state.create_account(address, account);
+        }
+
+        let state = build_genesis_state(accounts);
+
+        assert_eq!(state.root_hash(), manual_state.root_hash());
+        assert_eq!(state.get_account(alice), manual_state.get_account(alice));
+        assert_eq!(state.get_account(bob), manual_state.get_account(bob));
     }
     
     #[test]
